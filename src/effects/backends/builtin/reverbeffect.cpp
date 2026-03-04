@@ -1,8 +1,17 @@
+// EXPERIMENT: learning Mixxx reverb code flow
 #include "effects/backends/builtin/reverbeffect.h"
 
 #include "effects/backends/effectmanifest.h"
 #include "engine/effects/engineeffectparameter.h"
 #include "util/sample.h"
+#include <QDebug>
+
+// ================================
+// Reverb Band-Pass Experiment
+// Author: Tanu
+// Goal: Understand where and how a band-pass filter
+// can be integrated into the reverb signal path.
+// ================================
 
 // static
 QString ReverbEffect::getId() {
@@ -66,6 +75,24 @@ EffectManifestPointer ReverbEffect::getManifest() {
     send->setDefaultLinkInversion(EffectManifestParameter::LinkInversion::NotInverted);
     send->setRange(0, 0, 1);
 
+    EffectManifestParameterPointer bpFreq = pManifest->addParameter();
+    bpFreq->setId("bp_freq");
+    bpFreq->setName(QObject::tr("BP Frequency"));
+    bpFreq->setShortName(QObject::tr("BPFreq"));
+    bpFreq->setDescription(QObject::tr("Center frequency of band-pass filter"));
+    bpFreq->setValueScaler(EffectManifestParameter::ValueScaler::Logarithmic);
+    bpFreq->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
+    bpFreq->setRange(200, 1000, 5000);
+
+    EffectManifestParameterPointer bpQ = pManifest->addParameter();
+    bpQ->setId("bp_q");
+    bpQ->setName(QObject::tr("BP Q"));
+    bpQ->setShortName(QObject::tr("BPQ"));
+    bpQ->setDescription(QObject::tr("Q factor of band-pass filter"));
+    bpQ->setValueScaler(EffectManifestParameter::ValueScaler::Linear);
+    bpQ->setUnitsHint(EffectManifestParameter::UnitsHint::Unknown);
+    bpQ->setRange(0.1, 0.707, 5);
+
     return pManifest;
 }
 
@@ -75,9 +102,12 @@ void ReverbEffect::loadEngineEffectParameters(
     m_pBandWidthParameter = parameters.value("bandwidth");
     m_pDampingParameter = parameters.value("damping");
     m_pSendParameter = parameters.value("send_amount");
+    m_pBPFreqParameter = parameters.value("bp_freq");
+    m_pBPQParameter = parameters.value("bp_q");
 }
 
 void ReverbEffect::processChannel(
+        qDebug() << "REVERB CODE IS RUNNING";
         ReverbGroupState* pState,
         const CSAMPLE* pInput,
         CSAMPLE* pOutput,
@@ -85,6 +115,7 @@ void ReverbEffect::processChannel(
         const EffectEnableState enableState,
         const GroupFeatureState& groupFeatures) {
     Q_UNUSED(groupFeatures);
+    
 
     const auto decay = static_cast<sample_t>(m_pDecayParameter->value());
     const auto bandwidth = static_cast<sample_t>(m_pBandWidthParameter->value());
@@ -111,6 +142,15 @@ void ReverbEffect::processChannel(
             sendCurrent,
             pState->sendPrevious);
 
+    double freq = m_pBPFreqParameter->value();
+    double q = m_pBPQParameter->value();
+
+    pState->bandPass.setParameters(freq, q);
+
+    for (int i = 0; i < engineParameters.samplesPerBuffer(); ++i) {
+    pOutput[i] = pState->bandPass.process(pOutput[i]);;
+    }
+
     // The ramping of the send parameter handles ramping when enabling, so
     // this effect must handle ramping to dry when disabling itself (instead
     // of being handled by EngineEffect::process).
@@ -120,4 +160,4 @@ void ReverbEffect::processChannel(
     } else {
         pState->sendPrevious = sendCurrent;
     }
-}
+        }
